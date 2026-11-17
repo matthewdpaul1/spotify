@@ -626,7 +626,6 @@ html, body { max-width: 100%; }
     <button type="button" role="tab" class="tab" data-page="artist" tabindex="-1">Artist spotlight</button>
     <button type="button" role="tab" class="tab" data-page="versions" tabindex="-1">Versions</button>
     <button type="button" role="tab" class="tab" data-page="rediscover" tabindex="-1">Rediscover</button>
-    <button type="button" role="tab" class="tab" data-page="habits" tabindex="-1">Habits</button>
   </nav>
 
   <div class="card boot" id="boot" role="status"><span class="spin" aria-hidden="true"></span><span class="boot-msg">Decoding the listening history</span></div>
@@ -781,30 +780,6 @@ html, body { max-width: 100%; }
     </div>
   </div>
 
-  <!-- HABITS -->
-  <div class="page" id="page-habits">
-    <div class="card">
-      <h2>When I listen</h2>
-      <div class="chip-strip" id="hb-ranges" role="group" aria-label="Time range"></div>
-      <p class="insight" id="hb-insight"></p>
-      <div class="hm" id="hb-heat" role="img"></div>
-      <div class="hm-legend"><span>Fewer listens</span><span class="bar"></span><span>More</span></div>
-    </div>
-    <div class="grid2">
-      <div class="card"><h2>By weekday</h2><div class="chart" id="hb-dow" style="height:260px;"></div></div>
-      <div class="card"><h2>By hour</h2><div class="chart" id="hb-hour" style="height:260px;"></div></div>
-    </div>
-    <div class="card">
-      <h2>Rank drift</h2>
-      <small class="dim">Where the 15 most played artists ranked each year. Ranks below 30 are left off.</small>
-      <div class="chart tall" id="hb-bump"></div>
-    </div>
-    <div class="card">
-      <h2>New artists each year</h2>
-      <small class="dim">Artists first heard that year who went on to reach at least 5 listens.</small>
-      <div class="chart" id="hb-new" style="height:260px;"></div>
-    </div>
-  </div>
   </main>
   <div class="foot" id="foot"></div>
 
@@ -1585,7 +1560,7 @@ function trendSection(cur, prev) {
   const row = i => ({id: i, c: nC[i], p: nP[i], rc: rC[i], rp: rP[i], mv: (rP[i] || outP) - (rC[i] || outC)});
   const up = cur.aO.slice(0, TR_POOL).map(row).filter(r => r.mv > 0).sort((x, y) => y.mv - x.mv);
   const dn = prev.aO.slice(0, TR_POOL).map(row).filter(r => r.mv < 0).sort((x, y) => x.mv - y.mv);
-  TR_TOP_RISER = up.length ? up[0].id : null;
+  TR_TOP_RISER = up.length ? up.reduce((b, r) => r.c > b.c ? r : b).id : null;
   const maxUp = Math.max(1, ...up.map(r => r.mv)), maxDn = Math.max(1, ...dn.map(r => -r.mv));
   const rk = (r, cur) => { const v = cur ? r.rc : r.rp; return v ? `#${fmtInt(v)}` : '<span class="dim">unranked</span>'; };
   const cols = (best, max) => [COL.rank(),
@@ -1597,9 +1572,9 @@ function trendSection(cur, prev) {
         + `<span class="${best ? 'up' : 'dn'}">${best ? '+' : '−'}${fmtInt(Math.abs(r.mv))}</span><span class="bw-bar" style="--w:${Math.round(100 * Math.abs(r.mv) / max)}"></span>`},
     COL.num('Listens', r => r.c, fmtInt, {title: `Listens in ${TR_YEAR}`}),
     COL.num(`Listens ${TR_YEAR - 1}`, r => r.p, fmtInt)];
-  dataTable('tr-artists-up', {id: 'tr-artists-up-t', rows: up, topn: 15, sort: [4, 'desc'], keycols: [2, 3, 4], titlecol: 1, compact: true, cols: cols(true, maxUp),
+  dataTable('tr-artists-up', {id: 'tr-artists-up-t', rows: up, topn: 15, sort: [5, 'desc'], keycols: [2, 3, 4], titlecol: 1, compact: true, cols: cols(true, maxUp),
     empty: 'No artist moved up that year.'});
-  dataTable('tr-artists-dn', {id: 'tr-artists-dn-t', rows: dn, topn: 15, sort: [4, 'asc'], keycols: [2, 3, 4], titlecol: 1, compact: true, cols: cols(false, maxDn),
+  dataTable('tr-artists-dn', {id: 'tr-artists-dn-t', rows: dn, topn: 15, sort: [6, 'desc'], keycols: [2, 3, 4], titlecol: 1, compact: true, cols: cols(false, maxDn),
     empty: 'No artist moved down that year.'});
   document.getElementById('tr-artists-meta').textContent = `Biggest moves in the artist ranking: risers from ${TR_YEAR}'s top ${TR_POOL}, fallers from ${TR_YEAR - 1}'s top ${TR_POOL}`;
 }
@@ -1921,75 +1896,6 @@ function renderRediscover() {
       COL.num('Score', g => g.score, v => fmtFixed(v, 1), {title: 'Peak 90-day listens x share of artist x quiet time (full credit at 2 years)'})],
   });
 }
-let HB_RANGE = 'all';
-const _HB_CACHE = {};
-function dayHour(r) {
-  if (_HB_CACHE[r.k]) return _HB_CACHE[r.k];
-  const g = new Int32Array(7 * 24);
-  for (let i = r.lo; i < r.hi; i++) g[P_DOW[i] * 24 + P_HR[i]]++;
-  return (_HB_CACHE[r.k] = g);
-}
-function renderHabits() {
-  chipStrip('hb-ranges', RANGES.map(r => [r.k, r.label]), HB_RANGE, k => { HB_RANGE = k; renderHabitsRange(); syncUrl(false); });
-  renderHabitsRange();
-  npSet('habits', LIFE.tO[0], 'Your #1 song of all time');
-  renderBump();
-  renderNewArtists();
-}
-function renderHabitsRange() {
-  const r = rangeOf(HB_RANGE), g = dayHour(r), total = r.hi - r.lo || 1;
-  let max = 0, mi = 0;
-  g.forEach((v, i) => { if (v > max) { max = v; mi = i; } });
-  const byDow = DOW.map((_, d) => g.slice(d * 24, d * 24 + 24).reduce((s, v) => s + v, 0));
-  const byHr = [...Array(24).keys()].map(h => DOW.reduce((s, _, d) => s + g[d * 24 + h], 0));
-  const topDow = byDow.indexOf(Math.max(...byDow)), topHr = byHr.indexOf(Math.max(...byHr));
-  const quiet = byHr.indexOf(Math.min(...byHr));
-  document.getElementById('hb-insight').innerHTML = r.hi > r.lo
-    ? `The busiest hour of the week is <b>${DOW_FULL[Math.floor(mi / 24)]} at ${hourLabel(mi % 24)}</b> (${fmtPct(max / total, 1)} of listens). ` +
-      `<b>${DOW_FULL[topDow]}</b> is the biggest day and <b>${hourLabel(topHr)}</b> the biggest hour; ${hourLabel(quiet)} is the quietest.`
-    : 'No listens in this range.';
-  let html = '<span></span>' + [...Array(24).keys()].map(h => `<span class="hh">${h % 3 === 0 ? hourLabel(h).replace(' ', '') : ''}</span>`).join('');
-  for (let d = 0; d < 7; d++) {
-    html += `<span class="hl">${DOW[d]}</span>`;
-    for (let h = 0; h < 24; h++) {
-      const v = g[d * 24 + h], p = max ? Math.round(100 * Math.pow(v / max, 0.85)) : 0;
-      html += `<span class="c" style="--p:${p}%" title="${DOW[d]} ${hourLabel(h)}: ${fmtPct(v / total, 2)} of listens (${fmtInt(v)})"></span>`;
-    }
-  }
-  const hm = document.getElementById('hb-heat');
-  hm.innerHTML = html;
-  hm.setAttribute('aria-label', `Listens by weekday and hour, ${r.label}`);
-  const c = TC();
-  newPlot('hb-dow', [{x: DOW, y: byDow.map(v => v / total), type: 'bar', marker: {color: DOW.map((_, i) => i === topDow ? c.accent : c.accent2)},
-    customdata: byDow, hovertemplate: '%{x}: %{y:.1%} (%{customdata:,})<extra></extra>'}],
-    {...plotLayout({l: 46, b: 30}), xaxis: {...plotLayout().xaxis, type: 'category'}, yaxis: {...plotLayout().yaxis, tickformat: '.0%'}});
-  newPlot('hb-hour', [{x: [...Array(24).keys()].map(hourLabel), y: byHr.map(v => v / total), type: 'bar',
-    marker: {color: byHr.map((_, i) => i === topHr ? c.accent : c.accent2)}, customdata: byHr,
-    hovertemplate: '%{x}: %{y:.1%} (%{customdata:,})<extra></extra>'}],
-    {...plotLayout({l: 46, b: 40}), xaxis: {...plotLayout().xaxis, type: 'category', tickangle: 0, nticks: 8}, yaxis: {...plotLayout().yaxis, tickformat: '.0%'}});
-}
-function renderBump() {
-  const yrs = [...YEARS].sort((a, b) => a - b), top = LIFE.aO.slice(0, 15), CAP = 30, pal = SERIES();
-  const ranks = yrs.map(y => { const r = rangeOf(String(y)); return ranksOf(aggRange(r.lo, r.hi), 'a'); });
-  const traces = top.map((a, k) => ({
-    x: yrs.map(String), y: ranks.map(R => R[a] && R[a] <= CAP ? R[a] : null), name: artistName(a),
-    customdata: ranks.map(R => R[a] ? '#' + R[a] : 'not heard'),
-    type: 'scatter', mode: 'lines+markers', connectgaps: false,
-    line: {color: pal[k], width: k < 5 ? 3 : 2}, marker: {color: pal[k], size: k < 5 ? 8 : 6},
-    hovertemplate: `${esc(artistName(a))}<br>%{x}: %{customdata}<extra></extra>`,
-  }));
-  newPlot('hb-bump', traces, {...plotLayout({l: 40, r: 10, b: 30}), showlegend: true,
-    legend: {font: {color: TC().muted, size: 12}, orientation: 'v', x: 1.01, y: 1, traceorder: 'normal'},
-    xaxis: {...plotLayout().xaxis, type: 'category'},
-    yaxis: {...plotLayout().yaxis, autorange: false, range: [CAP + 0.8, 0.2], tickvals: [1, 5, 10, 15, 20, 25, 30], title: {text: 'Rank that year', font: {color: TC().muted, size: 12}}}});
-}
-function renderNewArtists() {
-  const nw = newArtistsByYear(), yrs = [...YEARS].sort((a, b) => a - b);
-  newPlot('hb-new', [{x: yrs.map(String), y: yrs.map(y => nw[y].length), type: 'bar', marker: {color: barColors(yrs)},
-    customdata: yrs.map(y => nw[y].slice(0, 3).map(artistName).join(', ')),
-    hovertemplate: '%{x}: %{y} new artists<br>%{customdata}<extra></extra>'}],
-    {...plotLayout({l: 46, b: 30}), xaxis: {...plotLayout().xaxis, type: 'category'}});
-}
 const VK = {
   original: ['Original', 'Original'], live: ['Live', 'Live'], extended: ['Extended', 'Extended'], feat: ['Features', 'Feature'],
   taylors: ["Taylor's Version", "Taylor's Version"], remaster: ['Remaster', 'Remaster'], edit: ['Edits', 'Edit'], other: ['Other', 'Other'],
@@ -2216,7 +2122,7 @@ function openAlbum(b) {
 }
 const TAB_RENDER = {
   overview: () => renderOverview(), years: () => renderYears(), trending: () => renderTrending(),
-  versions: () => renderVersions(), artist: () => renderArtist(), rediscover: () => renderRediscover(), habits: () => renderHabits(),
+  versions: () => renderVersions(), artist: () => renderArtist(), rediscover: () => renderRediscover(),
 };
 const DIRTY = new Set(Object.keys(TAB_RENDER));
 let READY = false;
@@ -2322,7 +2228,6 @@ function stateHash() {
   if (tab === 'trending') return TR_YEAR == null ? '#trending' : `#trending/${TR_YEAR}`;
   if (tab === 'versions') return VS_KIND === 'all' ? '#versions' : `#versions/${VS_KIND}`;
   if (tab === 'artist') return AR_ID != null && ARTIST_SLUG ? `#artist/${ARTIST_SLUG[AR_ID]}` : '#artist';
-  if (tab === 'habits') return HB_RANGE === 'all' ? '#habits' : `#habits/${HB_RANGE}`;
   return '#' + tab;
 }
 function syncUrl(push) {
@@ -2339,7 +2244,6 @@ function applyRoute() {
     closeModal();
     const sub = parts[1];
     if (tab === 'overview') { const k = RANGES.some(r => r.k === sub) ? sub : 'all'; if (k !== OV_RANGE) { OV_RANGE = k; DIRTY.add('overview'); } }
-    if (tab === 'habits') { const k = RANGES.some(r => r.k === sub) ? sub : 'all'; if (k !== HB_RANGE) { HB_RANGE = k; DIRTY.add('habits'); } }
     if (tab === 'years' && sub && YEAR_RANGE[+sub] && +sub !== YR_YEAR) { YR_YEAR = +sub; DIRTY.add('years'); }
     if (tab === 'trending' && sub && trendYears().includes(+sub) && +sub !== TR_YEAR) { TR_YEAR = +sub; DIRTY.add('trending'); }
     if (tab === 'versions') { const k = VK_ORDER.includes(sub) ? sub : 'all'; if (k !== VS_KIND) { VS_KIND = k; DIRTY.add('versions'); } }
