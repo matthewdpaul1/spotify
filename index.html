@@ -707,10 +707,8 @@ html, body { max-width: 100%; }
       <h2>Versions: which take of a song you actually play</h2>
       <div class="vs-how">
         <p><b>Everywhere else on the dashboard, every version of a song counts as that one song.</b> A live take, an extended cut, a remaster, a radio edit, a "feat." version or a Taylor's Version all add up to the original. Albums work the same way: deluxe, expanded, anniversary and Taylor's Version editions count as one album (<i>The Great Divide: The Last Of The Bugs</i> is <i>The Great Divide</i>).</p>
-        <p><b>This page splits those listens back out</b> so you can see which version you play most. Remixes and acoustic versions are different recordings, so they stay separate songs everywhere (compared at the bottom).</p>
+        <p><b>This page splits out the takes that are actually a different recording</b> (live versions, extended cuts and edits) so you can see which one you play most. Feature, remaster and Taylor's Version tags still count as the original here. Remixes and acoustic versions are different recordings, so they stay separate songs everywhere (compared at the bottom).</p>
       </div>
-      <div class="vs-pick-l">Show songs with a</div>
-      <div class="chip-strip" id="vs-kinds" role="group" aria-label="Kind of version"></div>
       <div class="kpi-grid k6" id="vs-kpis"></div>
     </div>
     <div class="card"><h2>Songs you heard in more than one version</h2><small class="dim">"Original" is the plain studio version; the split bar shows every version's share. Click a row for the full breakdown.</small><div id="vs-table"></div></div>
@@ -718,11 +716,6 @@ html, body { max-width: 100%; }
     <div class="bw-grid">
       <div class="card bw-card bw-best"><div class="bw-t"><span class="bw-ic" aria-hidden="true">&#9650;</span><h2 id="vs-win-h">You prefer another version</h2></div><div id="vs-win"></div></div>
       <div class="card bw-card bw-orig"><div class="bw-t"><span class="bw-ic" aria-hidden="true">&#9679;</span><h2 id="vs-lose-h">You stick with the original</h2></div><div id="vs-lose"></div></div>
-    </div>
-    <div class="card">
-      <h2>Albums you heard in more than one edition</h2>
-      <small class="dim">These editions count as one album on every other page. Listens by the edition you actually played; click a row for the album.</small>
-      <div id="vs-albums"></div>
     </div>
     <div class="card">
       <h2>Remixes vs originals</h2>
@@ -1900,8 +1893,7 @@ const VK = {
   original: ['Original', 'Original'], live: ['Live', 'Live'], extended: ['Extended', 'Extended'], feat: ['Features', 'Feature'],
   taylors: ["Taylor's Version", "Taylor's Version"], remaster: ['Remaster', 'Remaster'], edit: ['Edits', 'Edit'], other: ['Other', 'Other'],
 };
-const VK_ORDER = ['all', 'live', 'extended', 'feat', 'taylors', 'remaster', 'edit', 'other'];
-let VS_KIND = 'all';
+const VS_KINDS = new Set(['live', 'extended', 'edit']);   // takes that are actually a different recording
 const kindPill = k => `<span class="pill vk-${k}">${(VK[k] || VK.other)[1]}</span>`;
 // Stacked bar: one segment per part, colored by kind.
 function splitBar(parts, total, w = 140) {
@@ -1913,24 +1905,19 @@ const verParts = list => list.map(v => ({k: v.kind, n: v.n, label: v.name}));
 let _VS_ROWS = null;
 function versionRows() {
   if (_VS_ROWS) return _VS_ROWS;
-  _VS_ROWS = [...VERS.entries()].map(([t, list]) => {
+  _VS_ROWS = [...VERS.entries()].map(([t, vs]) => {
+    const list = vs.map(v => VS_KINDS.has(v.kind) ? v : {...v, kind: 'original'});
     const total = list.reduce((s, v) => s + v.n, 0), orig = list.filter(v => v.kind === 'original').reduce((s, v) => s + v.n, 0);
     const byKind = {};
     list.forEach(v => { byKind[v.kind] = (byKind[v.kind] || 0) + v.n; });
     return {t, list, total, orig, byKind};
-  });
+  }).filter(r => r.total > r.orig);
   return _VS_ROWS;
 }
 function renderVersions() {
-  const strip = document.getElementById('vs-kinds');
-  const rowsAll = versionRows();
-  const count = k => k === 'all' ? rowsAll.length : rowsAll.filter(r => r.byKind[k]).length;
-  strip.innerHTML = VK_ORDER.map(k => `<button type="button" class="chip${k === VS_KIND ? ' on' : ''}" data-k="${k}" aria-pressed="${k === VS_KIND}">${k === 'all' ? 'All' : VK[k][0]}<span class="chip-n">${count(k)}</span></button>`).join('');
-  strip.onclick = e => { const b = e.target.closest('button[data-k]'); if (!b) return; VS_KIND = b.dataset.k; renderVersions(); syncUrl(false); };
-  const k = VS_KIND, isAll = k === 'all', label = isAll ? 'Other versions' : VK[k][0];
-  const alt = r => isAll ? r.total - r.orig : (r.byKind[k] || 0);
-  const rows = rowsAll.filter(r => isAll || r.byKind[k]);
-  const vers = rows.flatMap(r => r.list.filter(v => isAll ? v.kind !== 'original' : v.kind === k).map(v => ({...v, t: r.t})));
+  const rows = versionRows(), label = 'Other versions';
+  const alt = r => r.total - r.orig;
+  const vers = rows.flatMap(r => r.list.filter(v => v.kind !== 'original').map(v => ({...v, t: r.t})));
   const totAlt = rows.reduce((s, r) => s + alt(r), 0), tot = rows.reduce((s, r) => s + alt(r) + r.orig, 0);
   // Songs never once played as the original (e.g. only ever the feat. cut) aren't a preference, so they sit out the win / lose counts.
   const both = rows.filter(r => r.orig > 0 && alt(r) > 0);
@@ -1938,57 +1925,40 @@ function renderVersions() {
   const topV = vers.slice().sort((a, b) => b.n - a.n)[0];
   const swing = wins.slice().sort((a, b) => (alt(b) - b.orig) - (alt(a) - a.orig))[0];
   document.getElementById('vs-kpis').innerHTML = `
-    <div class="kpi"><div class="label">Songs</div><div class="value">${fmtInt(rows.length)}</div><div class="sub">with ${isAll ? '2+ versions' : 'a ' + VK[k][1].toLowerCase() + ' version'}</div></div>
-    <div class="kpi"><div class="label">Versions</div><div class="value">${fmtInt(vers.length)}</div><div class="sub">${isAll ? 'besides the original' : VK[k][0].toLowerCase()}</div></div>
+    <div class="kpi"><div class="label">Songs</div><div class="value">${fmtInt(rows.length)}</div><div class="sub">with a live, extended or edited take</div></div>
+    <div class="kpi"><div class="label">Versions</div><div class="value">${fmtInt(vers.length)}</div><div class="sub">${'besides the original'}</div></div>
     <div class="kpi"><div class="label">${esc(label)} listens</div><div class="value">${fmtInt(totAlt)}</div><div class="sub">${fmtPct(totAlt / LIFE.n, 1)} of all listens</div></div>
-    <div class="kpi"><div class="label">Share of these songs</div><div class="value">${fmtPct(totAlt / (tot || 1))}</div><div class="sub">went to ${isAll ? 'another version' : 'the ' + VK[k][1].toLowerCase() + ' version'}</div></div>
+    <div class="kpi"><div class="label">Share of these songs</div><div class="value">${fmtPct(totAlt / (tot || 1))}</div><div class="sub">went to ${'another version'}</div></div>
     <div class="kpi"><div class="label">The version wins</div><div class="value up">${fmtInt(wins.length)}</div><div class="sub">more listens than the original</div></div>
     <div class="kpi"><div class="label">The original wins</div><div class="value">${fmtInt(losses.length)}</div><div class="sub">${fmtInt(both.length - wins.length - losses.length)} ties; ${fmtInt(rows.length - both.length)} never split</div></div>
-    ${topV ? `<div class="kpi wide"><div class="label">Most played ${isAll ? 'other' : VK[k][1].toLowerCase()} version</div><div class="value nm">${thumb('al', TR_ALB[topV.t], 28)}<button type="button" class="tag-link" data-song="${topV.t}">${esc(topV.name)}</button></div><div class="sub">${esc(artistName(TR_ART[topV.t]))} · ${plural(topV.n, 'listen')}</div></div>` : ''}
+    ${topV ? `<div class="kpi wide"><div class="label">Most played ${'other'} version</div><div class="value nm">${thumb('al', TR_ALB[topV.t], 28)}<button type="button" class="tag-link" data-song="${topV.t}">${esc(topV.name)}</button></div><div class="sub">${esc(artistName(TR_ART[topV.t]))} · ${plural(topV.n, 'listen')}</div></div>` : ''}
     ${swing ? `<div class="kpi wide"><div class="label">Biggest win for the version</div><div class="value nm">${thumb('al', TR_ALB[swing.t], 28)}${songLink(swing.t)}</div><div class="sub">${fmtInt(alt(swing))} vs ${fmtInt(swing.orig)} for the original</div></div>` : ''}`;
   dataTable('vs-table', {
     id: 'vs-t', rows, topn: 10, sort: [2, 'desc'], keycols: [2, 4, 5], titlecol: 1, rowClick: r => openSong(r.t),
-    empty: 'No songs with this kind of version.',
+    empty: 'No song heard in a live, extended or edited take.',
     cols: [COL.rank(),
       {h: 'Song', cls: 'main', v: r => songName(r.t).toLowerCase(), cell: r => songCell2(r.t)},
       COL.num('Listens', r => r.total),
       COL.num('Original', r => r.orig),
       COL.num(esc(label), r => alt(r)),
-      COL.num('% other', r => alt(r) / (r.total || 1), v => fmtPct(v), {title: isAll ? 'Share of listens to versions other than the original' : `Share of listens to the ${VK[k][1].toLowerCase()} version`}),
-      COL.num('Versions', r => r.list.length),
+      COL.num('% other', r => alt(r) / (r.total || 1), v => fmtPct(v), {title: 'Share of listens to versions other than the original'}),
+      COL.num('Takes', r => r.list.filter(v => v.kind !== 'original').length, fmtInt, {title: 'Live, extended and edited takes heard'}),
       {h: 'Split', nosort: true, cell: r => splitBar(verParts(r.list), r.total)}],
   });
-  const topVer = r => r.list.filter(v => isAll ? v.kind !== 'original' : v.kind === k)[0];
+  const topVer = r => r.list.filter(v => v.kind !== 'original')[0];
   const winCols = best => [COL.rank(),
     {h: 'Song', cls: 'main', v: r => songName(r.t).toLowerCase(), cell: r => songCell2(r.t)},
     {h: 'Version', cls: 'sub', v: r => (topVer(r) || {}).name, cell: r => { const v = topVer(r); return v ? `${kindPill(v.kind)} <span class="vname" title="${esc(v.name)}">${esc(v.name)}</span>` : ''; }},
-    COL.num(isAll ? 'Other' : esc(VK[k][1]), r => alt(r)),
+    COL.num('Other', r => alt(r)),
     COL.num('Original', r => r.orig),
     {h: 'Margin', num: true, cls: 'delta', v: r => Math.abs(alt(r) - r.orig), cell: r => `<span class="${best ? 'up' : 'dim'}">${fmtInt(Math.abs(alt(r) - r.orig))}</span>`}];
   dataTable('vs-win', {id: 'vs-win-t', rows: wins, topn: 10, sort: [5, 'desc'], keycols: [3, 4], titlecol: 1, compact: true, cols: winCols(true), rowClick: r => openSong(r.t),
     empty: 'The original wins every time here.'});
   dataTable('vs-lose', {id: 'vs-lose-t', rows: losses, topn: 10, sort: [5, 'desc'], keycols: [3, 4], titlecol: 1, compact: true, cols: winCols(false), rowClick: r => openSong(r.t),
     empty: 'No song here where the original wins.'});
-  document.getElementById('vs-win-h').textContent = isAll ? 'You prefer another version' : `You prefer the ${VK[k][1].toLowerCase()} version`;
-  document.getElementById('vs-lose-h').textContent = 'You stick with the original';
-  renderAlbumEditions();
-  renderRemixes();
+    renderRemixes();
   const topSong = rows.slice().sort((a, b) => b.total - a.total)[0];
-  if (topSong) npSet('versions', topSong.t, isAll ? 'Your most played song with more than one version' : `Your most played song with a ${VK[k][1].toLowerCase()} version`);
-}
-function renderAlbumEditions() {
-  const rows = [...ALB_VERS.entries()].map(([b, eds]) => ({b, eds, total: eds.reduce((s, e) => s + e.n, 0)}));
-  const isBase = (r, e) => e.name === albumName(r.b);
-  dataTable('vs-albums', {
-    id: 'vs-alb-t', rows, topn: 10, sort: [2, 'desc'], keycols: [2, 3], titlecol: 1, rowClick: r => openAlbum(r.b),
-    empty: 'No album heard in more than one edition.',
-    cols: [COL.rank(),
-      {h: 'Album', cls: 'main', v: r => albumName(r.b).toLowerCase(), cell: r => albumCell(r.b)},
-      COL.num('Listens', r => r.total),
-      COL.num('Editions', r => r.eds.length),
-      {h: 'Editions heard', cls: 'sub', nosort: true, cell: r => r.eds.map(e => `${isBase(r, e) ? kindPill('original') : '<span class="pill vk-other">Edition</span>'} <span class="vname">${esc(e.name)}</span> <span class="dim">${fmtInt(e.n)}</span>`).join('<br>')},
-      {h: 'Split', nosort: true, cell: r => splitBar(r.eds.map(e => ({k: isBase(r, e) ? 'original' : 'other', n: e.n, label: e.name})), r.total)}],
-  });
+  if (topSong) npSet('versions', topSong.t, 'Your most played song with a live, extended or edited take');
 }
 function renderRemixes() {
   const pairs = (D.remixes || []).map(([rm, og]) => ({rm, og, r: LIFE.tN[rm], o: LIFE.tN[og]})).filter(p => p.r && p.o);
@@ -2226,7 +2196,6 @@ function stateHash() {
   if (tab === 'overview') return OV_RANGE === 'all' ? '#overview' : `#overview/${OV_RANGE}`;
   if (tab === 'years') return `#years/${YR_YEAR}`;
   if (tab === 'trending') return TR_YEAR == null ? '#trending' : `#trending/${TR_YEAR}`;
-  if (tab === 'versions') return VS_KIND === 'all' ? '#versions' : `#versions/${VS_KIND}`;
   if (tab === 'artist') return AR_ID != null && ARTIST_SLUG ? `#artist/${ARTIST_SLUG[AR_ID]}` : '#artist';
   return '#' + tab;
 }
@@ -2246,7 +2215,6 @@ function applyRoute() {
     if (tab === 'overview') { const k = RANGES.some(r => r.k === sub) ? sub : 'all'; if (k !== OV_RANGE) { OV_RANGE = k; DIRTY.add('overview'); } }
     if (tab === 'years' && sub && YEAR_RANGE[+sub] && +sub !== YR_YEAR) { YR_YEAR = +sub; DIRTY.add('years'); }
     if (tab === 'trending' && sub && trendYears().includes(+sub) && +sub !== TR_YEAR) { TR_YEAR = +sub; DIRTY.add('trending'); }
-    if (tab === 'versions') { const k = VK_ORDER.includes(sub) ? sub : 'all'; if (k !== VS_KIND) { VS_KIND = k; DIRTY.add('versions'); } }
     if (tab === 'artist' && sub && SLUG_ARTIST[sub] != null && SLUG_ARTIST[sub] !== AR_ID) { AR_ID = SLUG_ARTIST[sub]; DIRTY.add('artist'); }
     showTab(tab);
   } finally { ROUTING = false; }
