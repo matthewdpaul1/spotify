@@ -660,7 +660,7 @@ html, body { max-width: 100%; }
         <summary>How this is counted</summary>
         <ul>
           <li>A listen is a play that lasted at least 30 seconds. Shorter plays (skips) are not in the data at all.</li>
-          <li>History starts in 2018; 2017 listens are dropped entirely.</li>
+          <li>History starts in January 2018.</li>
           <li>Live versions, remasters, radio and single edits, extended cuts, feat. and with tags, and Taylor's Versions count as the original song. The Versions tab breaks them out.</li>
           <li>Remixes and acoustic versions stay separate songs. Podcasts and audiobooks are excluded.</li>
           <li>Times are local: UTC-8 before August 1, 2021 and UTC-5 from then on, with no daylight saving. Years, months, days and hours all use this.</li>
@@ -1011,7 +1011,7 @@ const monthIso = mi => `${Y0 + Math.floor(mi / 12)}-${String(mi % 12 + 1).padSta
 const hourLabel = h => h === 0 ? '12 am' : h < 12 ? `${h} am` : h === 12 ? '12 pm' : `${h - 12} pm`;
 // '#12', or 'unranked' for something heard only in EXCLUDE_YEARS_FROM_OVERALL.
 const rankTxt = r => r ? '#' + fmtInt(r) : 'unranked';
-// 'Leaves out 2017' (empty when no year is excluded): shown next to all-time numbers.
+// 'Leaves out <years>' (empty when no year is excluded): shown next to all-time numbers.
 const overallNote = () => EXCLUDE_YEARS_FROM_OVERALL.size ? `Leaves out ${[...EXCLUDE_YEARS_FROM_OVERALL].sort().join(', ')}` : '';
 const plural = (n, w, ws) => `${fmtInt(n)} ${n === 1 ? w : (ws || w + 's')}`;
 const ESC = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'};
